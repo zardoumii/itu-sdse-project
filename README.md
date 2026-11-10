@@ -13,12 +13,9 @@ The original task description is in the course repository:
 
 ## Group members
 
-| Name | ITU initials |
-|------|--------------|
-| TODO | TODO         |
-| TODO | TODO         |
-| TODO | TODO         |
-| TODO | TODO         |
+- Erik Aymerich
+- Benjamin
+- Youssef
 
 ## Project structure
 
