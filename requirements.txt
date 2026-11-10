@@ -1,0 +1,20 @@
+# Python 3.13
+torch
+torchvision
+mlflow>=2.18
+boto3
+dvc
+numpy
+pandas
+scikit-learn
+scipy
+pillow
+requests
+
+# Serving (same versions as requirements-serving.txt on feature/model-serving)
+fastapi==0.162.2
+uvicorn==0.54.0
+
+# Testing (httpx is needed by FastAPI's TestClient)
+pytest
+httpx
