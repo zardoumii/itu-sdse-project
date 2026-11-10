@@ -1,4 +1,4 @@
-"""Download the vial images from the object store.
+"""Download the vial images and load them as (image_path, label) pairs.
 
 The metadata csvs are tracked with DVC, so run `dvc pull` first. Then
 `python -m src.training.data` downloads the images listed in them.
@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import boto3
+import pandas as pd
 from botocore import UNSIGNED
 from botocore.config import Config
 
@@ -77,6 +78,28 @@ def download_data():
     """Download the training and test images from the object store."""
     download_files_from_metadata(METADATA_PATH, IMAGE_DATA_DIR, "images/raw/")
     download_files_from_metadata(TEST_METADATA_PATH, TEST_DATA_DIR, "test/")
+
+
+def load_image_dataset(metadata_path=METADATA_PATH, image_dir=IMAGE_DATA_DIR):
+    """Return (image_path, label) pairs for every listed image that exists on disk."""
+    metadata_path = Path(metadata_path)
+    if not metadata_path.exists():
+        raise FileNotFoundError(f"Metadata file not found at {metadata_path} (run `dvc pull`)")
+
+    metadata = pd.read_csv(metadata_path)
+    image_dataset = []
+    missing = 0
+    for filename, label in zip(metadata["filename"], metadata["class"]):
+        image_path = Path(image_dir) / filename
+        if image_path.exists():
+            image_dataset.append((image_path, int(label)))
+        else:
+            missing += 1
+
+    logger.info("Loaded %d images with labels", len(image_dataset))
+    if missing:
+        logger.warning("%d image files listed in the metadata were not found", missing)
+    return image_dataset
 
 
 if __name__ == "__main__":
