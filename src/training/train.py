@@ -59,3 +59,33 @@ def train_one_epoch(model, loader, criterion, optimizer, device, threshold=THRES
         float(accuracy),
         f1_score(all_labels, all_preds, average="binary"),
     )
+
+
+def validate_epoch(model, loader, criterion, device, threshold=THRESHOLD):
+    """One pass over the validation data without updating the model.
+
+    Returns (loss, accuracy, f1, f1_macro). Macro F1 averages both classes,
+    so a model that predicts "defective" for everything scores low on it.
+    """
+    model.eval()
+    running_loss = 0.0
+    all_preds, all_labels = [], []
+
+    with torch.no_grad():
+        for images, labels in loader:
+            images = images.to(device)
+            labels = labels.float().to(device).view(-1, 1)
+
+            logits = model(images)
+            running_loss += criterion(logits, labels).item()
+            predicted = (torch.sigmoid(logits) >= threshold).float().view(-1)
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.view(-1).cpu().numpy())
+
+    accuracy = sum(p == l for p, l in zip(all_preds, all_labels)) / len(all_labels)
+    return (
+        running_loss / len(loader),
+        float(accuracy),
+        f1_score(all_labels, all_preds, average="binary"),
+        f1_score(all_labels, all_preds, average="macro"),
+    )
