@@ -5,12 +5,15 @@ can later be compared with: image statistics, class and prediction counts,
 prediction confidences and the embeddings of the fc1 layer.
 """
 
+import json
 import logging
+from pathlib import Path
 
+import mlflow
 import numpy as np
 import torch
 
-from src.training.config import THRESHOLD
+from src.training.config import DRIFT_BASELINE_STATS_PATH, THRESHOLD
 from src.training.train import get_device
 
 logger = logging.getLogger(__name__)
@@ -104,3 +107,22 @@ def compute_baseline_statistics(model, data_loader, device=None, feature_layer="
         labels.count(0), labels.count(1), stats["confidence_statistics"]["mean"],
     )
     return stats
+
+
+def save_baseline_statistics(stats, path=DRIFT_BASELINE_STATS_PATH):
+    """Write the baseline to JSON, and log it to MLflow when a run is active."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(stats, indent=2))
+    logger.info("Drift baseline saved to %s", path)
+
+    if mlflow.active_run():
+        image_stats = stats["image_statistics"]
+        mlflow.log_metrics({
+            **{f"baseline_image_{key}": value for key, value in image_stats.items()},
+            "baseline_class_0_count": stats["class_distribution"]["class_0_count"],
+            "baseline_class_1_count": stats["class_distribution"]["class_1_count"],
+            "baseline_confidence_mean": stats["confidence_statistics"]["mean"],
+            "baseline_confidence_std": stats["confidence_statistics"]["std"],
+        })
+        mlflow.log_artifact(str(path), "drift_detection")
