@@ -56,6 +56,9 @@ class SimpleLoggingWrapper(mlflow.pyfunc.PythonModel):
                 raise FileNotFoundError("Could not find model file")
         self.model.to(self.device)
         self.model.eval()
+        # __init__ ran where the model was trained; create the log directory
+        # again where the model is loaded (e.g. in the serving container)
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
         logger.info("SimpleLoggingWrapper loaded on %s", self.device)
 
     def _create_model_from_checkpoint(self, checkpoint):
