@@ -192,3 +192,40 @@ def train_cnn_model(
         model.load_state_dict(history["best_model_state"])
     logger.info("Best validation macro F1: %.4f", history["best_val_f1_macro"])
     return model, history
+
+
+def tune_threshold(model, val_loader, device=None, threshold_range=None):
+    """Return the classification threshold with the best validation macro F1.
+
+    Macro F1 is used because the positive-class F1 alone rewards predicting
+    "defective" for every image (defective is the majority class). Logged to
+    MLflow when a run is active.
+    """
+    device = device or get_device()
+    if threshold_range is None:
+        # Fine grid: the model's probabilities can fall in a narrow band
+        threshold_range = [round(t, 3) for t in np.arange(0.025, 0.976, 0.025)]
+
+    model.eval()
+    all_probs, all_labels = [], []
+    with torch.no_grad():
+        for images, labels in val_loader:
+            logits = model(images.to(device))
+            all_probs.extend(torch.sigmoid(logits).view(-1).cpu().numpy())
+            all_labels.extend(labels.view(-1).numpy())
+    all_probs = np.array(all_probs)
+    all_labels = np.array(all_labels)
+
+    best_threshold = THRESHOLD
+    best_f1 = 0.0
+    for t in threshold_range:
+        f1_macro = f1_score(all_labels, (all_probs >= t).astype(int), average="macro")
+        if f1_macro > best_f1:
+            best_f1 = f1_macro
+            best_threshold = t
+
+    logger.info("Optimal threshold: %s (validation macro F1 %.4f)", best_threshold, best_f1)
+    if mlflow.active_run():
+        mlflow.log_param("optimal_threshold", best_threshold)
+        mlflow.log_metric("optimal_threshold_macro_f1", best_f1)
+    return best_threshold
