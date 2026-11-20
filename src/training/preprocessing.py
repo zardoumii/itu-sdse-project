@@ -5,10 +5,10 @@ import logging
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 
-from src.training.config import IMAGE_SIZE, RANDOM_STATE, TRANSFORM_MEAN, TRANSFORM_STD
+from src.training.config import BATCH_SIZE, IMAGE_SIZE, RANDOM_STATE, TRANSFORM_MEAN, TRANSFORM_STD
 
 logger = logging.getLogger(__name__)
 
@@ -99,3 +99,31 @@ def split_dataset(image_dataset, train_ratio=0.70, val_ratio=0.15, random_seed=R
             name, len(subset), labels.count(0), labels.count(1),
         )
     return train_dataset, val_dataset, test_dataset
+
+
+def create_dataloaders(train_dataset, val_dataset, test_dataset, batch_size=BATCH_SIZE):
+    """Wrap the (image_path, label) splits in DataLoaders.
+
+    Only the training set is augmented and shuffled. num_workers stays 0:
+    worker processes would draw different random augmentations, which would
+    change the trained model.
+    """
+    train_transforms, val_transforms = define_transforms()
+    pin_memory = torch.cuda.is_available()
+
+    def make_loader(subset, transform, shuffle):
+        paths, labels = zip(*subset) if subset else ([], [])
+        dataset = GlassVialDataset(list(paths), list(labels), transform)
+        return DataLoader(
+            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=pin_memory,
+        )
+
+    train_loader = make_loader(train_dataset, train_transforms, shuffle=True)
+    val_loader = make_loader(val_dataset, val_transforms, shuffle=False)
+    test_loader = make_loader(test_dataset, val_transforms, shuffle=False)
+
+    logger.info(
+        "Batches: train %d, val %d, test %d",
+        len(train_loader), len(val_loader), len(test_loader),
+    )
+    return train_loader, val_loader, test_loader
