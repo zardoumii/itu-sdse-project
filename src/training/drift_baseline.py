@@ -50,3 +50,57 @@ def collect_model_outputs(model, data_loader, device=None, feature_layer="fc1", 
 
     outputs["embeddings"] = embeddings
     return outputs
+
+
+def compute_baseline_statistics(model, data_loader, device=None, feature_layer="fc1", threshold=THRESHOLD):
+    """Summarize the model outputs on data_loader into the drift baseline.
+
+    The keys are read by the serving side (src/serving/drift.py), so keep
+    the format unchanged.
+    """
+    outputs = collect_model_outputs(model, data_loader, device, feature_layer, threshold)
+    image_means = np.array(outputs["image_means"])
+    image_stds = np.array(outputs["image_stds"])
+    labels, preds, confidences = outputs["labels"], outputs["preds"], outputs["confidences"]
+
+    stats = {
+        "image_statistics": {
+            "mean_r": float(np.mean(image_means[:, 0])),
+            "mean_g": float(np.mean(image_means[:, 1])),
+            "mean_b": float(np.mean(image_means[:, 2])),
+            "std_r": float(np.mean(image_stds[:, 0])),
+            "std_g": float(np.mean(image_stds[:, 1])),
+            "std_b": float(np.mean(image_stds[:, 2])),
+        },
+        "class_distribution": {
+            "class_0_count": labels.count(0),
+            "class_1_count": labels.count(1),
+            "total": len(labels),
+        },
+        "prediction_distribution": {
+            "pred_0_count": preds.count(0),
+            "pred_1_count": preds.count(1),
+            "total": len(preds),
+        },
+        "confidence_statistics": {
+            "mean": float(np.mean(confidences)),
+            "std": float(np.std(confidences)),
+            "min": float(np.min(confidences)),
+            "max": float(np.max(confidences)),
+        },
+        "embedding_statistics": {"mean": [], "std": []},
+    }
+
+    if outputs["embeddings"]:
+        embeddings = np.concatenate(outputs["embeddings"], axis=0)
+        stats["embedding_statistics"] = {
+            "mean": np.mean(embeddings, axis=0).tolist(),
+            "std": np.std(embeddings, axis=0).tolist(),
+            "shape": int(embeddings.shape[1]),
+        }
+
+    logger.info(
+        "Drift baseline: classes 0=%d 1=%d, confidence mean %.4f",
+        labels.count(0), labels.count(1), stats["confidence_statistics"]["mean"],
+    )
+    return stats
