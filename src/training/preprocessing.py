@@ -127,3 +127,31 @@ def create_dataloaders(train_dataset, val_dataset, test_dataset, batch_size=BATC
         len(train_loader), len(val_loader), len(test_loader),
     )
     return train_loader, val_loader, test_loader
+
+
+def calculate_image_statistics(data_loader):
+    """Mean and std per RGB channel over a DataLoader, averaged per image.
+
+    Saved as an artifact so the serving side can compare live images with the
+    training data.
+    """
+    total_mean = np.zeros(3)
+    total_std = np.zeros(3)
+    total_samples = 0
+
+    for images, _ in data_loader:
+        batch = images.numpy()
+        batch_size = batch.shape[0]
+        # (batch, channels, height, width) -> (batch, pixels, channels)
+        batch = batch.transpose(0, 2, 3, 1).reshape(batch_size, -1, 3)
+        total_mean += batch.mean(axis=1).sum(axis=0)
+        total_std += batch.std(axis=1).sum(axis=0)
+        total_samples += batch_size
+
+    stats = {
+        "mean": (total_mean / total_samples).tolist(),
+        "std": (total_std / total_samples).tolist(),
+        "total_samples": total_samples,
+    }
+    logger.info("Image statistics: mean=%s, std=%s", stats["mean"], stats["std"])
+    return stats
