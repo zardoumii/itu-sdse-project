@@ -13,6 +13,7 @@ from io import BytesIO
 from pathlib import Path
 
 import mlflow.pyfunc
+import numpy as np
 import torch
 from PIL import Image
 
@@ -118,3 +119,83 @@ class SimpleLoggingWrapper(mlflow.pyfunc.PythonModel):
             )
 
         return self.transform(image).unsqueeze(0)
+
+    def _extract_inputs(self, model_input):
+        """Normalize the accepted request shapes into a flat list of images.
+
+        Accepts {"instances": [...]}, {"data": [...]}, any other dict with one
+        image or list value, a list/tuple/array, or a single image. Nested
+        lists are flattened one level.
+        """
+        if isinstance(model_input, dict):
+            if "instances" in model_input:
+                image_inputs = model_input["instances"]
+            elif "data" in model_input:
+                image_inputs = model_input["data"]
+            else:
+                for value in model_input.values():
+                    if isinstance(value, (list, str, np.ndarray, bytes, Path)):
+                        image_inputs = [value] if isinstance(value, (str, Path, np.ndarray, bytes)) else value
+                        break
+                else:
+                    raise ValueError(f"Could not extract image inputs from input: {model_input}")
+        elif isinstance(model_input, (list, tuple, np.ndarray)):
+            image_inputs = model_input
+        else:
+            image_inputs = [model_input]
+
+        if isinstance(image_inputs, np.ndarray):
+            image_inputs = image_inputs.tolist()
+
+        flat = []
+        for item in image_inputs:
+            if isinstance(item, (list, tuple)):
+                flat.extend(item)
+            else:
+                flat.append(item)
+        return flat
+
+    def predict(self, context, model_input):
+        """Predict every image in the request and log each one.
+
+        Returns predictions (1 = defective), confidences and raw outputs
+        (sigmoid probability, rounded to 4 decimals) and the number of
+        samples. An image that fails gets None instead of failing the request.
+        """
+        if self.model is None:
+            self.load_context(context)
+
+        image_inputs = self._extract_inputs(model_input)
+        predictions, confidences, raw_outputs = [], [], []
+        timestamp = self._get_timestamp_iso()
+
+        for image_input in image_inputs:
+            try:
+                image_tensor = self.preprocess_image(image_input).to(self.device)
+                with torch.no_grad():
+                    prob = torch.sigmoid(self.model(image_tensor)).item()
+                pred = 1 if prob >= self.threshold else 0
+
+                predictions.append(pred)
+                confidences.append(round(float(prob), 4))
+                raw_outputs.append(round(float(prob), 4))
+
+                self._log_request({
+                    "timestamp": timestamp,
+                    "image_path": "<bytes>" if isinstance(image_input, bytes) else str(image_input),
+                    "prediction": pred,
+                    "confidence": float(prob),
+                    "raw_output": float(prob),
+                })
+            except Exception as e:
+                logger.warning("Error processing image %s: %s", str(image_input)[:80], e)
+                predictions.append(None)
+                confidences.append(None)
+                raw_outputs.append(None)
+
+        return {
+            "predictions": predictions,
+            "confidences": confidences,
+            "raw_outputs": raw_outputs,
+            "num_samples": len(image_inputs),
+        }
