@@ -5,13 +5,16 @@ transforms, returns predictions with confidences, and appends every request
 to an inference log that the serving side's drift check reads.
 """
 
+import base64
 import json
 import logging
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 import mlflow.pyfunc
 import torch
+from PIL import Image
 
 from src.training.config import THRESHOLD
 from src.training.model import SimpleCNN
@@ -80,3 +83,38 @@ class SimpleLoggingWrapper(mlflow.pyfunc.PythonModel):
             self.log_path.write_text(json.dumps(logs, indent=2))
         except Exception as e:
             logger.warning("Failed to log request: %s", e)
+
+    def preprocess_image(self, image_input):
+        """Turn one image into a (1, 3, 64, 64) tensor.
+
+        Accepts a file path (str or Path), raw bytes, or a base64 string (the
+        portable format for containerized serving). A str is used as a path if
+        that file exists, otherwise decoded as base64.
+        """
+        if isinstance(image_input, bytes):
+            image = Image.open(BytesIO(image_input)).convert("RGB")
+        elif isinstance(image_input, str):
+            try:
+                is_file = Path(image_input).exists()
+            except OSError:  # e.g. a base64 string too long to be a file name
+                is_file = False
+            if is_file:
+                image = Image.open(image_input).convert("RGB")
+            else:
+                try:
+                    image = Image.open(BytesIO(base64.b64decode(image_input))).convert("RGB")
+                except Exception as e:
+                    raise ValueError(
+                        f"Cannot process string input '{image_input[:50]}...': "
+                        f"not an existing file path and not valid base64 image data: {e}"
+                    )
+        elif isinstance(image_input, Path):
+            if not image_input.exists():
+                raise FileNotFoundError(f"File not found: {image_input}")
+            image = Image.open(image_input).convert("RGB")
+        else:
+            raise TypeError(
+                f"Unsupported image input type: {type(image_input)}. Expected str, Path, or bytes."
+            )
+
+        return self.transform(image).unsqueeze(0)
