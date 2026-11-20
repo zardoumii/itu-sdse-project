@@ -5,7 +5,9 @@ transforms, returns predictions with confidences, and appends every request
 to an inference log that the serving side's drift check reads.
 """
 
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import mlflow.pyfunc
@@ -59,3 +61,22 @@ class SimpleLoggingWrapper(mlflow.pyfunc.PythonModel):
         model = SimpleCNN()
         model.load_state_dict(checkpoint.get("model_state_dict", checkpoint))
         return model
+
+    def _get_timestamp_iso(self):
+        return datetime.now(timezone.utc).isoformat()
+
+    def _log_request(self, request_data):
+        """Append one entry to the JSON inference log. Never fails a prediction."""
+        try:
+            logs = []
+            if self.log_path.exists():
+                try:
+                    logs = json.loads(self.log_path.read_text())
+                except json.JSONDecodeError:
+                    logs = []
+                if not isinstance(logs, list):
+                    logs = []
+            logs.append(request_data)
+            self.log_path.write_text(json.dumps(logs, indent=2))
+        except Exception as e:
+            logger.warning("Failed to log request: %s", e)
