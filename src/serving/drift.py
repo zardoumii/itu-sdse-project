@@ -15,7 +15,7 @@ from scipy.stats import ks_2samp
 logger = logging.getLogger(__name__)
 
 INFERENCE_LOG_PATH = Path("artifacts/inference_log.json")
-BASELINE_STATS_PATH = Path("artifacts/drift_baseline_stats.json")
+DRIFT_BASELINE_STATS_PATH = Path("artifacts/drift_baseline_stats.json")
 
 DEFAULT_DAYS = 7
 KS_PVALUE_THRESHOLD = 0.05
@@ -43,7 +43,7 @@ def load_inference_logs(log_path: Path = INFERENCE_LOG_PATH) -> list[dict]:
     return logs if isinstance(logs, list) else []
 
 
-def load_baseline_stats(baseline_path: Path = BASELINE_STATS_PATH) -> dict | None:
+def load_baseline_stats(baseline_path: Path = DRIFT_BASELINE_STATS_PATH) -> dict | None:
     """Load the baseline written during training. Returns None if missing or unreadable."""
     if not baseline_path.exists():
         logger.warning("Baseline stats not found at %s", baseline_path)
