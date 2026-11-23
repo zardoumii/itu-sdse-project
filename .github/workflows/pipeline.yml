@@ -17,3 +17,15 @@ jobs:
           version: "0.21.12"
           verb: call
           args: python-version
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run tests
+        uses: dagger/dagger-for-github@v8.4.1
+        with:
+          version: "0.21.12"
+          verb: call
+          args: test
