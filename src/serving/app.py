@@ -9,10 +9,18 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from src.serving.drift import (
+    DEFAULT_DAYS,
+    DRIFT_BASELINE_STATS_PATH,
+    INFERENCE_LOG_PATH,
+    detect_drift,
+    load_baseline_stats,
+    load_inference_logs,
+)
 from src.serving.scoring_server import (
     invoke_scoring_server,
     scoring_server_health,
@@ -83,3 +91,11 @@ async def invocations(request: Request) -> Response:
     except ConnectionError as e:
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=502)
     return Response(content=content, status_code=status, media_type=media_type)
+
+
+@app.get("/drift")
+def drift(days: int = Query(default=DEFAULT_DAYS, ge=1)) -> dict:
+    """Drift checks over the requests the model logged in the last `days` days."""
+    logs = load_inference_logs(INFERENCE_LOG_PATH)
+    baseline = load_baseline_stats(DRIFT_BASELINE_STATS_PATH)
+    return detect_drift(logs, baseline, days=days)
