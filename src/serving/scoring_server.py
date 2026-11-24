@@ -60,3 +60,27 @@ def scoring_server_health(host: str = UPSTREAM_HOST, port: int = UPSTREAM_PORT) 
         return e.code
     except (urllib.error.URLError, TimeoutError, OSError):
         return None
+
+
+def invoke_scoring_server(
+    payload: bytes, host: str = UPSTREAM_HOST, port: int = UPSTREAM_PORT, timeout: float = 300
+) -> tuple[int, bytes, str]:
+    """POST a JSON payload to the scoring server's /invocations.
+
+    Returns (status code, body, content type). Error responses from the
+    scoring server are returned as they are; ConnectionError is raised if
+    it can't be reached at all.
+    """
+    request = urllib.request.Request(
+        f"http://{host}:{port}/invocations",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as resp:
+            return resp.status, resp.read(), resp.headers.get("Content-Type", "application/json")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read(), e.headers.get("Content-Type", "application/json")
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise ConnectionError(f"Scoring server not reachable: {e}") from e
