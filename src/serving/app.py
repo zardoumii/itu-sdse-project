@@ -77,6 +77,19 @@ def to_scoring_payload(body: bytes, content_type: str) -> bytes:
     return json.dumps({"instances": [base64.b64encode(body).decode("ascii")]}).encode()
 
 
+def no_image_could_be_read(content: bytes) -> bool:
+    """True when the model returned no prediction at all.
+
+    The model wrapper returns None for an input it can't read as an image,
+    instead of an error, so e.g. {"predictions": {"predictions": [null]}}.
+    """
+    try:
+        predictions = json.loads(content)["predictions"]["predictions"]
+    except (ValueError, KeyError, TypeError):
+        return False
+    return bool(predictions) and all(p is None for p in predictions)
+
+
 @app.post("/invocations")
 @app.post("/infer")
 async def invocations(request: Request) -> Response:
@@ -90,6 +103,9 @@ async def invocations(request: Request) -> Response:
         status, content, media_type = await run_in_threadpool(invoke_scoring_server, payload)
     except ConnectionError as e:
         return JSONResponse({"status": "error", "detail": str(e)}, status_code=502)
+
+    if status == 200 and no_image_could_be_read(content):
+        return JSONResponse({"status": "error", "detail": "Could not read the input as an image"}, status_code=400)
     return Response(content=content, status_code=status, media_type=media_type)
 
 

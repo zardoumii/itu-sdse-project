@@ -88,6 +88,27 @@ def test_empty_body_is_rejected(scoring_calls):
     assert scoring_calls == []
 
 
+def test_unreadable_image_returns_400(monkeypatch):
+    # What the model returns when it can't decode the input
+    monkeypatch.setattr(
+        serving_app,
+        "invoke_scoring_server",
+        lambda payload: (200, b'{"predictions": {"predictions": [null], "confidences": [null]}}', "application/json"),
+    )
+    response = client.post("/invocations", content=b"not an image", headers={"Content-Type": "image/jpeg"})
+    assert response.status_code == 400
+    assert response.json()["status"] == "error"
+
+
+def test_partly_readable_batch_is_still_returned(monkeypatch):
+    # Only fail the request when nothing at all could be predicted
+    body = b'{"predictions": {"predictions": [1, null], "confidences": [0.9, null]}}'
+    monkeypatch.setattr(serving_app, "invoke_scoring_server", lambda payload: (200, body, "application/json"))
+    response = client.post("/invocations", content=b'{"instances": ["a", "b"]}', headers={"Content-Type": "application/json"})
+    assert response.status_code == 200
+    assert response.content == body
+
+
 def test_scoring_server_down_returns_502(monkeypatch):
     def unreachable(payload):
         raise ConnectionError("Scoring server not reachable")
