@@ -4,10 +4,13 @@ from fastapi.testclient import TestClient
 
 from src.serving import app as serving_app
 
+# Not used as a context manager, so the app's lifespan doesn't start a real
+# scoring server; the tests replace the scoring server calls instead.
 client = TestClient(serving_app.app)
 
 
-def test_health():
+def test_health(monkeypatch):
+    monkeypatch.setattr(serving_app, "scoring_server_health", lambda: 200)
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
