@@ -14,8 +14,11 @@ from scipy.stats import ks_2samp
 
 logger = logging.getLogger(__name__)
 
+# Written by the served model (DEFAULT_INFERENCE_LOG_PATH in src/training/wrapper.py)
 INFERENCE_LOG_PATH = Path("artifacts/inference_log.json")
-DRIFT_BASELINE_STATS_PATH = Path("artifacts/drift_baseline_stats.json")
+# Exported next to the model by src/deployment/export.py, so it always
+# belongs to the model being served
+DRIFT_BASELINE_STATS_PATH = Path("models/model/drift_baseline_stats.json")
 
 DEFAULT_DAYS = 7
 KS_PVALUE_THRESHOLD = 0.05
