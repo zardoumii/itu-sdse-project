@@ -1,0 +1,24 @@
+# Model-serving image. Build from the project root after the pipeline has
+# exported the model to models/model (python -m src.deployment.run):
+#
+#   docker build -f docker/Dockerfile.model-serve -t model-serve .
+#   docker run -p 5001:5001 model-serve
+FROM python:3.13-slim
+
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+
+# CPU-only torch wheels: much smaller than the default CUDA build, and the
+# container has no GPU. Installed before copying the code so this layer is
+# cached when only the code changes.
+COPY requirements-serving.txt .
+RUN pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements-serving.txt
+
+COPY src ./src
+# The model, version.json and drift_baseline_stats.json (see src/deployment/export.py)
+COPY models/model ./models/model
+
+EXPOSE 5001
+CMD ["python", "-m", "src.serving.main"]
