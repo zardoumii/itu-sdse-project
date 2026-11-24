@@ -1,0 +1,6 @@
+# Only send what docker/Dockerfile.model-serve needs to the build
+*
+!requirements-serving.txt
+!src
+!models/model
+**/__pycache__
