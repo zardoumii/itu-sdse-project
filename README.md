@@ -26,7 +26,7 @@ The original task description is in the course repository:
 │   └── test/
 ├── docker/                # Dockerfiles
 ├── docs/                  # architecture diagrams and dataset description
-├── infra/digitalocean/    # DigitalOcean App Platform spec
+├── infra/azure/           # Azure Container Apps spec
 ├── notebooks/             # original notebooks, being split into src/
 ├── src/
 │   ├── common/            # code shared by training and deployment (MLflow setup)
