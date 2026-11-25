@@ -1,0 +1,157 @@
+"""Image preprocessing for training: transforms, dataset, split and dataloaders."""
+
+import logging
+
+import numpy as np
+import torch
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from torchvision import transforms
+
+from src.training.config import BATCH_SIZE, IMAGE_SIZE, RANDOM_STATE, TRANSFORM_MEAN, TRANSFORM_STD
+
+logger = logging.getLogger(__name__)
+
+
+def define_transforms():
+    """Return (train_transforms, val_transforms).
+
+    Images are resized from the native camera resolution to IMAGE_SIZE and
+    normalized with the ImageNet statistics. Only the training transforms
+    apply augmentation (flip, rotation, colour jitter).
+    """
+    train_transforms = transforms.Compose([
+        transforms.Resize(IMAGE_SIZE),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.RandomRotation(10),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=TRANSFORM_MEAN, std=TRANSFORM_STD),
+    ])
+
+    val_transforms = transforms.Compose([
+        transforms.Resize(IMAGE_SIZE),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=TRANSFORM_MEAN, std=TRANSFORM_STD),
+    ])
+
+    return train_transforms, val_transforms
+
+
+class GlassVialDataset(Dataset):
+    """Loads vial images as RGB and their labels, and applies the transform."""
+
+    def __init__(self, image_paths, labels, transform=None):
+        self.image_paths = image_paths
+        self.labels = labels
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        with Image.open(self.image_paths[idx]) as img:
+            image = img.convert("RGB") if img.mode != "RGB" else img.copy()
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, self.labels[idx]
+
+
+def split_dataset(image_dataset, train_ratio=0.70, val_ratio=0.15, random_seed=RANDOM_STATE):
+    """Stratified split into (train, val, test) lists of (image_path, label).
+
+    Each class is shuffled and split on its own, so every set keeps the same
+    class balance. Whatever is left after train and val goes to test.
+    """
+    np.random.seed(random_seed)
+    torch.manual_seed(random_seed)
+
+    class_0 = [(path, label) for path, label in image_dataset if label == 0]
+    class_1 = [(path, label) for path, label in image_dataset if label == 1]
+    np.random.shuffle(class_0)
+    np.random.shuffle(class_1)
+
+    def split_class(data):
+        train_size = int(len(data) * train_ratio)
+        val_size = int(len(data) * val_ratio)
+        return (
+            data[:train_size],
+            data[train_size:train_size + val_size],
+            data[train_size + val_size:],
+        )
+
+    train_0, val_0, test_0 = split_class(class_0)
+    train_1, val_1, test_1 = split_class(class_1)
+
+    train_dataset = train_0 + train_1
+    val_dataset = val_0 + val_1
+    test_dataset = test_0 + test_1
+    np.random.shuffle(train_dataset)
+    np.random.shuffle(val_dataset)
+    np.random.shuffle(test_dataset)
+
+    for name, subset in (("train", train_dataset), ("val", val_dataset), ("test", test_dataset)):
+        labels = [label for _, label in subset]
+        logger.info(
+            "%s: %d images (class 0: %d, class 1: %d)",
+            name, len(subset), labels.count(0), labels.count(1),
+        )
+    return train_dataset, val_dataset, test_dataset
+
+
+def create_dataloaders(train_dataset, val_dataset, test_dataset, batch_size=BATCH_SIZE):
+    """Wrap the (image_path, label) splits in DataLoaders.
+
+    Only the training set is augmented and shuffled. num_workers stays 0:
+    worker processes would draw different random augmentations, which would
+    change the trained model.
+    """
+    train_transforms, val_transforms = define_transforms()
+    pin_memory = torch.cuda.is_available()
+
+    def make_loader(subset, transform, shuffle):
+        paths, labels = zip(*subset) if subset else ([], [])
+        dataset = GlassVialDataset(list(paths), list(labels), transform)
+        return DataLoader(
+            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0, pin_memory=pin_memory,
+        )
+
+    train_loader = make_loader(train_dataset, train_transforms, shuffle=True)
+    val_loader = make_loader(val_dataset, val_transforms, shuffle=False)
+    test_loader = make_loader(test_dataset, val_transforms, shuffle=False)
+
+    logger.info(
+        "Batches: train %d, val %d, test %d",
+        len(train_loader), len(val_loader), len(test_loader),
+    )
+    return train_loader, val_loader, test_loader
+
+
+def calculate_image_statistics(data_loader):
+    """Mean and std per RGB channel over a DataLoader, averaged per image.
+
+    Saved as an artifact so the serving side can compare live images with the
+    training data.
+    """
+    total_mean = np.zeros(3)
+    total_std = np.zeros(3)
+    total_samples = 0
+
+    for images, _ in data_loader:
+        batch = images.numpy()
+        batch_size = batch.shape[0]
+        # (batch, channels, height, width) -> (batch, pixels, channels)
+        batch = batch.transpose(0, 2, 3, 1).reshape(batch_size, -1, 3)
+        total_mean += batch.mean(axis=1).sum(axis=0)
+        total_std += batch.std(axis=1).sum(axis=0)
+        total_samples += batch_size
+
+    stats = {
+        "mean": (total_mean / total_samples).tolist(),
+        "std": (total_std / total_samples).tolist(),
+        "total_samples": total_samples,
+    }
+    logger.info("Image statistics: mean=%s, std=%s", stats["mean"], stats["std"])
+    return stats
