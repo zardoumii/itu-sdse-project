@@ -183,9 +183,11 @@ class SimpleLoggingWrapper(mlflow.pyfunc.PythonModel):
                 confidences.append(round(float(prob), 4))
                 raw_outputs.append(round(float(prob), 4))
 
+                # Never log the image itself: the serving app sends base64
+                # strings, which would make the log grow by the image size
                 self._log_request({
                     "timestamp": timestamp,
-                    "image_path": "<bytes>" if isinstance(image_input, bytes) else str(image_input),
+                    "image_path": str(image_input) if isinstance(image_input, Path) else "<image>",
                     "prediction": pred,
                     "confidence": float(prob),
                     "raw_output": float(prob),
