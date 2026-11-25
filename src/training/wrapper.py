@@ -84,7 +84,8 @@ class SimpleLoggingWrapper(mlflow.pyfunc.PythonModel):
                 if not isinstance(logs, list):
                     logs = []
             logs.append(request_data)
-            self.log_path.write_text(json.dumps(logs, indent=2))
+            # No indentation: the whole log is rewritten on every request
+            self.log_path.write_text(json.dumps(logs))
         except Exception as e:
             logger.warning("Failed to log request: %s", e)
 
